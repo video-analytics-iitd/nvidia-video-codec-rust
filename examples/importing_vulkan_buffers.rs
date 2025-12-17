@@ -9,34 +9,20 @@ use cudarc::driver::CudaContext;
 use libc::munmap;
 use nvidia_video_codec_sdk::{
     sys::nvEncodeAPI::{
-        NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
-        NV_ENC_CODEC_H264_GUID,
-        NV_ENC_H264_PROFILE_HIGH_GUID,
-        NV_ENC_PRESET_P1_GUID,
-        NV_ENC_TUNING_INFO,
+        NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB, NV_ENC_CODEC_H264_GUID,
+        NV_ENC_H264_PROFILE_HIGH_GUID, NV_ENC_PRESET_P1_GUID, NV_ENC_TUNING_INFO,
     },
-    Encoder,
-    EncoderInitParams,
+    Encoder, EncoderInitParams,
 };
 use vulkano::{
     device::{
-        physical::PhysicalDeviceType,
-        Device,
-        DeviceCreateInfo,
-        DeviceExtensions,
-        DeviceFeatures,
+        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures,
         QueueCreateInfo,
     },
     instance::{Instance, InstanceCreateInfo},
     memory::{
-        DeviceMemory,
-        ExternalMemoryHandleType,
-        ExternalMemoryHandleTypes,
-        MappedMemoryRange,
-        MemoryAllocateInfo,
-        MemoryMapFlags,
-        MemoryMapInfo,
-        MemoryPropertyFlags,
+        DeviceMemory, ExternalMemoryHandleType, ExternalMemoryHandleTypes, MappedMemoryRange,
+        MemoryAllocateInfo, MemoryMapFlags, MemoryMapInfo, MemoryPropertyFlags,
     },
     VulkanLibrary,
 };
@@ -131,14 +117,13 @@ fn initialize_vulkan() -> (Arc<Device>, u32) {
                 khr_external_memory_fd: true,
                 ..Default::default()
             },
+            enabled_features: DeviceFeatures {
+                memory_map_placed: true,
+                ..Default::default()
+            },
             ..Default::default()
         },
-        enabled_features: DeviceFeatures {
-            memory_map_placed: true,
-            ..Default::default()
-        },
-        ..Default::default()
-    })
+    )
     .expect(
         "Vulkan should be installed correctly and `Device` should support `khr_external_memory_fd`",
     );
@@ -200,9 +185,6 @@ fn main() {
     let mut preset_config = encoder
         .get_preset_config(encode_guid, preset_guid, tuning_info)
         .expect("Encoder should be able to create config based on presets.");
-    let rc_params = &mut preset_config.presetCfg.rcParams;
-    rc_params.lowDelayKeyFrameScale = 0;
-    rc_params.multiPass = NV_ENC_MULTI_PASS::NV_ENC_MULTI_PASS_DISABLED;
 
     // Initialize a new encoder session based on the `preset_config`
     // we generated before.
@@ -323,12 +305,15 @@ fn create_buffer(
     let size = (width * height * 4) as u64;
 
     // Allocate memory with Vulkan.
-    let mut memory = DeviceMemory::allocate(vulkan_device, MemoryAllocateInfo {
-        allocation_size: size,
-        memory_type_index,
-        export_handle_types: ExternalMemoryHandleTypes::OPAQUE_FD,
-        ..Default::default()
-    })
+    let mut memory = DeviceMemory::allocate(
+        vulkan_device,
+        MemoryAllocateInfo {
+            allocation_size: size,
+            memory_type_index,
+            export_handle_types: ExternalMemoryHandleTypes::OPAQUE_FD,
+            ..Default::default()
+        },
+    )
     .expect("There should be space to allocate vulkan memory on the device");
 
     // Map and write to the memory.

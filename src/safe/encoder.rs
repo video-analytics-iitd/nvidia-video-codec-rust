@@ -440,12 +440,12 @@ impl Encoder {
         self,
         buffer_format: NV_ENC_BUFFER_FORMAT,
         mut initialize_params: EncoderInitParams<'_>,
-    ) -> Result<Session, EncodeError> {
+    ) -> Result<EncSession, EncodeError> {
         let initialize_params = &mut initialize_params.param;
         let width = initialize_params.encodeWidth;
         let height = initialize_params.encodeHeight;
         unsafe { (ENCODE_API.initialize_encoder)(self.ptr, initialize_params) }.result(&self)?;
-        Ok(Session {
+        Ok(EncSession {
             encoder: self,
             width,
             height,

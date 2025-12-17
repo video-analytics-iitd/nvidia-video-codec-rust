@@ -65,11 +65,8 @@ pub struct Rect {
 }
 
 #[derive(Encode, Decode, PartialEq, Debug, Clone, Copy)]
-///
 pub struct Dim {
-    ///
     pub w: i32,
-    ///
     pub h: i32,
 }
 
@@ -517,25 +514,21 @@ unsafe extern "C" fn handle_picture_display(
         * (*context).n_bpp as i32;
 
     unsafe { cuMemAlloc_v2(&mut frame, frame_size as usize) };
-    // println!("Allocated {frame}");
-
-    // println!("Decoder getWidth = {}", temp_width);
-    // println!("Decoder getHeight = {}", (*context).luma_height);
 
     // now copy the luma and chroma planes
-    let mut m = CUDA_MEMCPY2D {
-        srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-        srcDevice: dp_src_frame,
-        srcPitch: src_pitch as usize,
-        dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-        // dstHost: frame as *mut std::ffi::c_void,
-        dstDevice: frame,
-        dstPitch: (*context).n_bpp * temp_width as usize,
-        WidthInBytes: (*context).n_bpp * temp_width as usize,
-        Height: (*context).luma_height as usize,
-
-        ..Default::default()
+    let mut m = ::core::mem::MaybeUninit::<CUDA_MEMCPY2D>::uninit();
+    let mut m = unsafe {
+        ::core::ptr::write_bytes(m.as_mut_ptr(), 0, 1);
+        m.assume_init()
     };
+    m.srcMemoryType = CUmemorytype::CU_MEMORYTYPE_DEVICE;
+    m.srcDevice = dp_src_frame;
+    m.srcPitch = src_pitch as usize;
+    m.dstMemoryType = CUmemorytype::CU_MEMORYTYPE_DEVICE;
+    m.dstDevice = frame;
+    m.dstPitch = (*context).n_bpp * temp_width as usize;
+    m.WidthInBytes = (*context).n_bpp * temp_width as usize;
+    m.Height = (*context).luma_height as usize;
 
     cuMemcpy2DAsync_v2(&m, &mut *(*context).cuda_stream.cu_stream());
 
@@ -648,6 +641,7 @@ impl Decoder {
             timestamp: 0,
         };
         let res = unsafe { (DECODE_API.parse_video_data)(self.parser.0, &mut packet) };
+        res.result().unwrap();
 
         // The callback `handle_picture_decode` should populate this queue with decoded frames
         unsafe {
