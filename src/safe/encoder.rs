@@ -6,17 +6,15 @@
 
 use std::{ffi::c_void, ptr, sync::Arc};
 
-use cudarc::driver::CudaDevice;
+use cudarc::driver::CudaContext;
 
 use super::{api::ENCODE_API, result::EncodeError, session::EncSession};
 use crate::sys::nvEncodeAPI::{
     GUID, NVENCAPI_VERSION, NV_ENC_BUFFER_FORMAT, NV_ENC_CONFIG, NV_ENC_CONFIG_VER,
-    NV_ENC_DEVICE_TYPE, NV_ENC_INITIALIZE_PARAMS, NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS,
-    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER, NV_ENC_PRESET_CONFIG, NV_ENC_PRESET_CONFIG_VER,
-    NV_ENC_TUNING_INFO,
+    NV_ENC_DEVICE_TYPE, NV_ENC_INITIALIZE_PARAMS, NV_ENC_INITIALIZE_PARAMS_VER,
+    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS, NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER,
+    NV_ENC_PRESET_CONFIG, NV_ENC_PRESET_CONFIG_VER, NV_ENC_TUNING_INFO,
 };
-
-type Device = Arc<CudaDevice>;
 
 /// Entrypoint for the Encoder API.
 ///
@@ -41,8 +39,8 @@ type Device = Arc<CudaDevice>;
 #[derive(Debug)]
 pub struct Encoder {
     pub(crate) ptr: *mut c_void,
-    // Used to make sure that CudaDevice stays alive while the Encoder does
-    _device: Device,
+    // Used to fetch the device pointer for an externally allocated buffer
+    pub(crate) ctx: Arc<CudaContext>,
 }
 
 /// The client must flush the encoder before freeing any resources.
@@ -76,19 +74,20 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::Encoder;
-    /// let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     /// ```
-    pub fn initialize_with_cuda(cuda_device: Arc<CudaDevice>) -> Result<Self, EncodeError> {
+    pub fn initialize_with_cuda(cuda_ctx: Arc<CudaContext>) -> Result<Self, EncodeError> {
         let mut encoder = ptr::null_mut();
         let mut session_params = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS {
             version: NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER,
             deviceType: NV_ENC_DEVICE_TYPE::NV_ENC_DEVICE_TYPE_CUDA,
             apiVersion: NVENCAPI_VERSION,
             // Pass the CUDA Context as the device.
-            device: (*cuda_device.cu_primary_ctx()).cast::<c_void>(),
+            // valid casting since CUcontext is a *mut
+            device: cuda_ctx.cu_ctx().cast::<c_void>(),
             ..Default::default()
         };
 
@@ -99,11 +98,11 @@ impl Encoder {
             // We are required to destroy the encoder if there was an error.
             unsafe { (ENCODE_API.destroy_encoder)(encoder) }.result_without_string()?;
             err?;
-        };
+        }
 
         Ok(Self {
             ptr: encoder,
-            _device: cuda_device,
+            ctx: cuda_ctx,
         })
     }
 
@@ -126,10 +125,10 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID, Encoder};
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     /// let encode_guids = encoder.get_encode_guids().unwrap();
     /// // Confirm that this machine support encoding to H.264.
     /// assert!(encode_guids.contains(&NV_ENC_CODEC_H264_GUID));
@@ -171,13 +170,13 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{NV_ENC_CODEC_H264_GUID, NV_ENC_PRESET_P1_GUID},
     /// #     Encoder,
     /// # };
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Check if H.264 encoding is supported. *//
     /// # let encode_guids = encoder.get_encode_guids().unwrap();
@@ -225,13 +224,13 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{NV_ENC_CODEC_H264_GUID, NV_ENC_H264_PROFILE_HIGH_GUID},
     /// #     Encoder,
     /// # };
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Check if H.264 encoding is supported. *//
     /// # let encode_guids = encoder.get_encode_guids().unwrap();
@@ -281,13 +280,13 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{NV_ENC_BUFFER_FORMAT, NV_ENC_CODEC_H264_GUID},
     /// #     Encoder,
     /// # };
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Check if H.264 encoding is supported. *//
     /// # let encode_guids = encoder.get_encode_guids().unwrap();
@@ -344,7 +343,7 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_CODEC_H264_GUID,
@@ -353,8 +352,8 @@ impl Encoder {
     /// #     },
     /// #     Encoder,
     /// # };
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Check if H.264 encoding and the P1 preset (highest performance) are supported. *//
     /// # let encode_guids = encoder.get_encode_guids().unwrap();
@@ -414,17 +413,16 @@ impl Encoder {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
     /// #         NV_ENC_CODEC_H264_GUID,
-    /// #         NV_ENC_INITIALIZE_PARAMS,
     /// #     },
-    /// #     Encoder,
+    /// #     Encoder, EncoderInitParams
     /// # };
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Check if `NV_ENC_CODEC_H264_GUID` is supported. *//
     /// # let encode_guids = encoder.get_encode_guids().unwrap();
@@ -434,25 +432,104 @@ impl Encoder {
     /// let _session = encoder
     ///     .start_session(
     ///         NV_ENC_BUFFER_FORMAT_ARGB,
-    ///         NV_ENC_INITIALIZE_PARAMS::new(NV_ENC_CODEC_H264_GUID, 1920, 1080),
+    ///         EncoderInitParams::new(NV_ENC_CODEC_H264_GUID, 1920, 1080),
     ///     )
     ///     .unwrap();
     /// ```
     pub fn start_session(
         self,
         buffer_format: NV_ENC_BUFFER_FORMAT,
-        mut initialize_params: NV_ENC_INITIALIZE_PARAMS,
-    ) -> Result<EncSession, EncodeError> {
+        mut initialize_params: EncoderInitParams<'_>,
+    ) -> Result<Session, EncodeError> {
+        let initialize_params = &mut initialize_params.param;
         let width = initialize_params.encodeWidth;
         let height = initialize_params.encodeHeight;
-        unsafe { (ENCODE_API.initialize_encoder)(self.ptr, &mut initialize_params) }
-            .result(&self)?;
-        Ok(EncSession {
+        unsafe { (ENCODE_API.initialize_encoder)(self.ptr, initialize_params) }.result(&self)?;
+        Ok(Session {
             encoder: self,
             width,
             height,
             buffer_format,
             encode_guid: initialize_params.encodeGUID,
         })
+    }
+}
+
+/// A safe wrapper for [`NV_ENC_INITIALIZE_PARAMS`], which is the encoder
+/// initialize parameter.
+#[derive(Debug)]
+pub struct EncoderInitParams<'a> {
+    param: NV_ENC_INITIALIZE_PARAMS,
+    marker: std::marker::PhantomData<&'a mut NV_ENC_CONFIG>,
+}
+
+impl<'a> EncoderInitParams<'a> {
+    /// Create a new builder for [`EncoderInitParams`], which is a wrapper for
+    /// [`NV_ENC_INITIALIZE_PARAMS`].
+    #[must_use]
+    pub fn new(encode_guid: GUID, width: u32, height: u32) -> Self {
+        let param = NV_ENC_INITIALIZE_PARAMS {
+            version: NV_ENC_INITIALIZE_PARAMS_VER,
+            encodeGUID: encode_guid,
+            encodeWidth: width,
+            encodeHeight: height,
+            ..Default::default()
+        };
+        Self {
+            param,
+            marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Specifies the preset for encoding. If the preset GUID is set then
+    /// the preset configuration will be applied before any other parameter.
+    pub fn preset_guid(&mut self, preset_guid: GUID) -> &mut Self {
+        self.param.presetGUID = preset_guid;
+        self
+    }
+
+    /// Tuning Info of NVENC encoding(`tuning_info` is not applicable to H264
+    /// and HEVC meonly mode).
+    pub fn tuning_info(&mut self, tuning_info: NV_ENC_TUNING_INFO) -> &mut Self {
+        self.param.tuningInfo = tuning_info;
+        self
+    }
+
+    /// Specifies the advanced codec specific structure. If client has sent a
+    /// valid codec config structure, it will override parameters set by the
+    /// [`EncoderInitParams::preset_guid`].
+    ///
+    /// The client can query the interface for codec-specific parameters
+    /// using [`Encoder::get_preset_config`](super::encoder::Encoder::get_preset_config).
+    /// It can then modify (if required) some of the codec config parameters and
+    /// send down a custom config structure using this method. Even in this
+    /// case the client is recommended to pass the same preset GUID it has
+    /// used to get the config.
+    pub fn encode_config(&mut self, encode_config: &'a mut NV_ENC_CONFIG) -> &mut Self {
+        self.param.encodeConfig = encode_config;
+        self
+    }
+
+    /// Specifies the display aspect ratio (H264/HEVC) or the render
+    /// width/height (AV1).
+    pub fn display_aspect_ratio(&mut self, width: u32, height: u32) -> &mut Self {
+        self.param.darWidth = width;
+        self.param.darHeight = height;
+        self
+    }
+
+    /// Specifies the framerate in frames per second as a fraction
+    /// `numerator / denominator`.
+    pub fn framerate(&mut self, numerator: u32, denominator: u32) -> &mut Self {
+        self.param.frameRateNum = numerator;
+        self.param.frameRateDen = denominator;
+        self
+    }
+
+    /// Enable the Picture Type Decision to be taken by the
+    /// `NvEncodeAPI` interface.
+    pub fn enable_picture_type_decision(&mut self) -> &mut Self {
+        self.param.enablePTD = 1;
+        self
     }
 }

@@ -44,22 +44,21 @@ impl EncSession {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
     /// #         NV_ENC_CODEC_H264_GUID,
-    /// #         NV_ENC_INITIALIZE_PARAMS,
     /// #         NV_ENC_PIC_PARAMS,
     /// #         NV_ENC_PIC_STRUCT,
     /// #     },
-    /// #     Encoder,
+    /// #     Encoder, EncoderInitParams
     /// # };
     /// # const WIDTH: u32 = 1920;
     /// # const HEIGHT: u32 = 1080;
     /// //* Create encoder. *//
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// # let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// # let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Set `encode_guid` and `buffer_format`, and check that H.264 encoding and the ARGB format are supported. *//
     /// # let encode_guid = NV_ENC_CODEC_H264_GUID;
@@ -70,7 +69,7 @@ impl EncSession {
     /// # assert!(input_formats.contains(&buffer_format));
     ///
     /// //* Begin encoder session. *//
-    /// # let mut initialize_params = NV_ENC_INITIALIZE_PARAMS::new(encode_guid, WIDTH, HEIGHT);
+    /// # let mut initialize_params = EncoderInitParams::new(encode_guid, WIDTH, HEIGHT);
     /// # initialize_params.display_aspect_ratio(16, 9)
     /// #     .framerate(30, 1)
     /// #     .enable_picture_type_decision();
@@ -84,7 +83,7 @@ impl EncSession {
     ///     .create_input_buffer()
     ///     .unwrap();
     /// ```
-    pub fn create_input_buffer(&self) -> Result<Buffer, EncodeError> {
+    pub fn create_input_buffer(&self) -> Result<Buffer<'_>, EncodeError> {
         let mut create_input_buffer_params = NV_ENC_CREATE_INPUT_BUFFER {
             version: NV_ENC_CREATE_INPUT_BUFFER_VER,
             width: self.width,
@@ -115,22 +114,21 @@ impl EncSession {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
     /// #         NV_ENC_CODEC_H264_GUID,
-    /// #         NV_ENC_INITIALIZE_PARAMS,
     /// #         NV_ENC_PIC_PARAMS,
     /// #         NV_ENC_PIC_STRUCT,
     /// #     },
-    /// #     Encoder,
+    /// #     Encoder, EncoderInitParams
     /// # };
     /// # const WIDTH: u32 = 1920;
     /// # const HEIGHT: u32 = 1080;
     /// //* Create encoder. *//
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// # let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// # let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Set `encode_guid` and `buffer_format`, and check that H.264 encoding and the ARGB format are supported. *//
     /// # let encode_guid = NV_ENC_CODEC_H264_GUID;
@@ -141,7 +139,7 @@ impl EncSession {
     /// # assert!(input_formats.contains(&buffer_format));
     ///
     /// //* Begin encoder session. *//
-    /// # let mut initialize_params = NV_ENC_INITIALIZE_PARAMS::new(encode_guid, WIDTH, HEIGHT);
+    /// # let mut initialize_params = EncoderInitParams::new(encode_guid, WIDTH, HEIGHT);
     /// # initialize_params.display_aspect_ratio(16, 9)
     /// #     .framerate(30, 1)
     /// #     .enable_picture_type_decision();
@@ -155,7 +153,7 @@ impl EncSession {
     ///     .create_output_bitstream()
     ///     .unwrap();
     /// ```
-    pub fn create_output_bitstream(&self) -> Result<Bitstream, EncodeError> {
+    pub fn create_output_bitstream(&self) -> Result<Bitstream<'_>, EncodeError> {
         let mut create_bitstream_buffer_params = NV_ENC_CREATE_BITSTREAM_BUFFER {
             version: NV_ENC_CREATE_BITSTREAM_BUFFER_VER,
             bitstreamBuffer: ptr::null_mut(),
@@ -190,8 +188,9 @@ impl EncSession {
         &self,
         pitch: u32,
         mapped_buffer: MappedBuffer,
-    ) -> Result<RegisteredResource<MappedBuffer>, EncodeError> {
-        let device_ptr = *mapped_buffer.device_ptr();
+    ) -> Result<RegisteredResource<'_, MappedBuffer>, EncodeError> {
+        let stream = self.encoder.ctx.default_stream();
+        let (device_ptr, _) = mapped_buffer.device_ptr(&stream);
         self.register_generic_resource(
             mapped_buffer,
             NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
@@ -220,7 +219,7 @@ impl EncSession {
         resource_type: NV_ENC_INPUT_RESOURCE_TYPE,
         resource_to_register: *mut c_void,
         pitch: u32,
-    ) -> Result<RegisteredResource<T>, EncodeError> {
+    ) -> Result<RegisteredResource<'_, T>, EncodeError> {
         // Register resource.
         let mut register_resource_params = NV_ENC_REGISTER_RESOURCE::new(
             resource_type,
@@ -290,23 +289,22 @@ impl<'a> Buffer<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
     /// #         NV_ENC_CODEC_H264_GUID,
-    /// #         NV_ENC_INITIALIZE_PARAMS,
     /// #         NV_ENC_PIC_PARAMS,
     /// #         NV_ENC_PIC_STRUCT,
     /// #     },
-    /// #     Encoder,
+    /// #     Encoder, EncoderInitParams
     /// # };
     /// # const WIDTH: u32 = 1920;
     /// # const HEIGHT: u32 = 1080;
     /// # const DATA_LEN: usize = (WIDTH * HEIGHT * 4) as usize;
     /// //* Create encoder. *//
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// # let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// # let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     /// //* Set `encode_guid` and `buffer_format`, and check that H.264 encoding and the ARGB format are supported. *//
     /// # let encode_guid = NV_ENC_CODEC_H264_GUID;
     /// # let encode_guids = encoder.get_encode_guids().unwrap();
@@ -315,7 +313,7 @@ impl<'a> Buffer<'a> {
     /// # let input_formats = encoder.get_supported_input_formats(encode_guid).unwrap();
     /// # assert!(input_formats.contains(&buffer_format));
     /// //* Begin encoder session. *//
-    /// # let mut initialize_params = NV_ENC_INITIALIZE_PARAMS::new(encode_guid, WIDTH, HEIGHT);
+    /// # let mut initialize_params = EncoderInitParams::new(encode_guid, WIDTH, HEIGHT);
     /// # initialize_params.display_aspect_ratio(16, 9)
     /// #     .framerate(30, 1)
     /// #     .enable_picture_type_decision();
@@ -402,7 +400,7 @@ impl EncoderInput for Buffer<'_> {
 ///
 /// This type is created via [`Buffer::lock`] or [`Buffer::try_lock`].
 /// The purpose of this type is similar to [`std::sync::MutexGuard`] -
-/// it automatically unlocks the buffer then the lock goes out of scope.
+/// it automatically unlocks the buffer when the lock goes out of scope.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub struct BufferLock<'a, 'b> {
@@ -451,7 +449,7 @@ pub struct Bitstream<'a> {
 
 unsafe impl Send for Bitstream<'_> {}
 
-impl<'a> Bitstream<'a> {
+impl Bitstream<'_> {
     /// Lock the output bitstream.
     ///
     /// On a successful lock you get a [`BitstreamLock`] which can be used to
@@ -466,7 +464,7 @@ impl<'a> Bitstream<'a> {
     /// # Errors
     ///
     /// Could error if we run out of memory.
-    pub fn lock(&mut self) -> Result<BitstreamLock, EncodeError> {
+    pub fn lock(&mut self) -> Result<BitstreamLock<'_, '_>, EncodeError> {
         self.lock_inner(true)
     }
 
@@ -483,11 +481,11 @@ impl<'a> Bitstream<'a> {
     /// An error with [`ErrorKind::LockBusy`](super::ErrorKind::LockBusy) could
     /// be returned if the lock is currently busy. This is a recoverable
     /// error and the client should retry in a few milliseconds.
-    pub fn try_lock(&mut self) -> Result<BitstreamLock, EncodeError> {
+    pub fn try_lock(&mut self) -> Result<BitstreamLock<'_, '_>, EncodeError> {
         self.lock_inner(false)
     }
 
-    fn lock_inner(&mut self, wait: bool) -> Result<BitstreamLock, EncodeError> {
+    fn lock_inner(&mut self, wait: bool) -> Result<BitstreamLock<'_, '_>, EncodeError> {
         // Lock bitstream.
         let mut lock_bitstream_buffer_params = NV_ENC_LOCK_BITSTREAM {
             version: NV_ENC_LOCK_BITSTREAM_VER,
@@ -534,7 +532,7 @@ impl EncoderOutput for Bitstream<'_> {
 ///
 /// This type is created via [`Bitstream::lock`] or [`Bitstream::try_lock`].
 /// The purpose of this type is similar to [`std::sync::MutexGuard`] -
-/// it automatically unlocks the buffer then the lock goes out of scope.
+/// it automatically unlocks the buffer when the lock goes out of scope.
 #[derive(Debug)]
 pub struct BitstreamLock<'a, 'b> {
     bitstream: &'a Bitstream<'b>,

@@ -41,18 +41,17 @@ impl EncSession {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
     /// #         NV_ENC_CODEC_H264_GUID,
-    /// #         NV_ENC_INITIALIZE_PARAMS,
     /// #     },
-    /// #     Encoder,
+    /// #     Encoder, EncoderInitParams
     /// # };
     /// //* Create encoder. *//
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// # let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// # let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Set `encode_guid` and check that H.264 encoding is supported. *//
     /// # let encode_guid = NV_ENC_CODEC_H264_GUID;
@@ -62,7 +61,7 @@ impl EncSession {
     /// let session = encoder
     ///     .start_session(
     ///         NV_ENC_BUFFER_FORMAT_ARGB,
-    ///         NV_ENC_INITIALIZE_PARAMS::new(encode_guid, 1920, 1080),
+    ///         EncoderInitParams::new(encode_guid, 1920, 1080),
     ///     )
     ///     .unwrap();
     /// // We can still use the encoder like this:
@@ -102,24 +101,23 @@ impl EncSession {
     /// # Examples
     ///
     /// ```
-    /// # use cudarc::driver::CudaDevice;
+    /// # use cudarc::driver::CudaContext;
     /// # use nvidia_video_codec_sdk::{
     /// #     sys::nvEncodeAPI::{
     /// #         NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_ARGB,
     /// #         NV_ENC_CODEC_H264_GUID,
-    /// #         NV_ENC_INITIALIZE_PARAMS,
     /// #         NV_ENC_PIC_PARAMS,
     /// #         NV_ENC_PIC_STRUCT,
     /// #     },
-    /// #     Encoder,
+    /// #     Encoder, EncoderInitParams,
     /// #     EncodePictureParams
     /// # };
     /// # const WIDTH: u32 = 1920;
     /// # const HEIGHT: u32 = 1080;
     /// # const DATA_LEN: usize = (WIDTH * HEIGHT * 4) as usize;
     /// //* Create encoder. *//
-    /// # let cuda_device = CudaDevice::new(0).unwrap();
-    /// # let encoder = Encoder::initialize_with_cuda(cuda_device).unwrap();
+    /// # let cuda_ctx = CudaContext::new(0).unwrap();
+    /// # let encoder = Encoder::initialize_with_cuda(cuda_ctx).unwrap();
     ///
     /// //* Set `encode_guid` and `buffer_format`, and check that H.264 encoding and the ARGB format are supported. *//
     /// # let encode_guid = NV_ENC_CODEC_H264_GUID;
@@ -130,7 +128,7 @@ impl EncSession {
     /// # assert!(input_formats.contains(&buffer_format));
     ///
     /// // Begin encoder session.
-    /// let mut initialize_params = NV_ENC_INITIALIZE_PARAMS::new(encode_guid, WIDTH, HEIGHT);
+    /// let mut initialize_params = EncoderInitParams::new(encode_guid, WIDTH, HEIGHT);
     /// initialize_params.display_aspect_ratio(16, 9)
     ///     .framerate(30, 1)
     ///     .enable_picture_type_decision();
@@ -173,7 +171,7 @@ impl EncSession {
                 self.encode_guid,
                 "The provided codec specific params must match the codec used"
             );
-        };
+        }
         let mut encode_pic_params = NV_ENC_PIC_PARAMS {
             version: NV_ENC_PIC_PARAMS_VER,
             inputWidth: self.width,
