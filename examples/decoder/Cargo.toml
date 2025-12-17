@@ -2,6 +2,6 @@
 name = "example-decoder"
 
 [dependencies]
-cudarc = { version = "0.16.1", features = ["std", "runtime", "driver", "nvrtc",  "cuda-version-from-build-system", "dynamic-linking"], default-features=false }
-ffmpeg-next = { git = "https://github.com/Shivam5022/rust-ffmpeg" }
+cudarc = { version = "0.18.2", features = ["std", "runtime", "driver", "nvrtc",  "cuda-version-from-build-system"], default-features=false }
+ffmpeg-next = { git = "https://github.com/video-analytics-iitd/rust-ffmpeg" }
 nvidia-video-codec-sdk = {path = "../../../nvidia-video-codec-sdk"}

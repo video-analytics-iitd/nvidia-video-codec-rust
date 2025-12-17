@@ -3,17 +3,20 @@ extern crate nvidia_video_codec_sdk;
 
 use cudarc::driver::CudaContext;
 use ffmpeg::codec::Id;
-use nvidia_video_codec_sdk::CpuFrame;
 use nvidia_video_codec_sdk::Decoder;
-use nvidia_video_codec_sdk::Frame;
 use std::convert::TryFrom;
 extern crate ffmpeg_next as ffmpeg;
+use cudarc::driver::CudaSlice;
+use cudarc::driver::CudaStream;
+use cudarc::driver::DevicePtr;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::ptr;
+use std::slice;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use ffmpeg::bsfilter::BSFContext;
 use ffmpeg::{format, Packet};
@@ -121,17 +124,16 @@ pub struct FrameIter {
     packets: VecDeque<Packet>,
 }
 
-impl TryFrom<PathBuf> for FrameIter {
-    type Error = String;
-
-    fn try_from(file_path: PathBuf) -> Result<Self, Self::Error> {
-        // let vid_path = "/home/satyam/dev/input.mp4";
-        let ctx = CudaContext::new(0).unwrap();
-        let stream = ctx.new_stream().unwrap();
+impl FrameIter {
+    fn new(
+        file_path: PathBuf,
+        ctx: Arc<CudaContext>,
+        stream: Arc<CudaStream>,
+    ) -> Result<Self, String> {
         let (packets, codec_id) = demux(file_path);
         let codec_id = ffmpeg_id_to_nv_id(codec_id);
 
-        let decoder = Decoder::initialize_with_cuda(ctx.clone(), stream.clone(), codec_id)
+        let decoder = Decoder::initialize_with_cuda(ctx, stream, codec_id, (640, 640))
             .expect("NVIDIA Video Codec SDK should be installed correctly.");
         Ok(Self {
             num_decoded_frames: 0,
@@ -142,7 +144,7 @@ impl TryFrom<PathBuf> for FrameIter {
 }
 
 impl Iterator for FrameIter {
-    type Item = Frame;
+    type Item = Arc<CudaSlice<f32>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -166,13 +168,58 @@ impl Iterator for FrameIter {
 }
 
 fn main() {
-    let mut frame_iter =
-        FrameIter::try_from(PathBuf::from_str("/home/satyam/dev/input.mp4").unwrap()).unwrap();
+    let ctx = CudaContext::new(0).unwrap();
+    let stream = ctx.new_stream().unwrap();
+    let mut frame_iter = FrameIter::new(
+        PathBuf::from_str("/home/satyam/dev/nvidia-video-codec-sdk/output_cpp.mp4").unwrap(),
+        ctx,
+        stream.clone(),
+    )
+    .unwrap();
     let mut out_file = File::create("output_rust.bin").unwrap();
+    // let ctx = CudaContext::new(0).unwrap();
+    // let stream = ctx.new_stream().unwrap();
     while let Some(frame) = frame_iter.next() {
-        let cpu_frame = CpuFrame::from(frame);
-        let slice = cpu_frame.to_slice();
-        out_file.write(slice).unwrap();
+        let mut cpu_frame: Vec<f32> = Vec::with_capacity(frame.len());
+        #[allow(clippy::uninit_vec)]
+        unsafe {
+            cpu_frame.set_len(frame.len())
+        };
+        // let frame2: CudaSlice<f32> = frame.stream().alloc_zeros::<f32>(frame.len()).unwrap();
+        // let frame = Arc::<CudaSlice<f32>>::try_unwrap(frame).unwrap();
+        // stream.memcpy_dtoh(&frame, &mut cpu_frame).unwrap();
+        // stream.memcpy_dtoh(frame.as_ref(), &mut cpu_frame).unwrap();
+        let frame = Arc::<CudaSlice<f32>>::try_unwrap(frame).unwrap();
+        let frame_ptr = frame.leak();
+        // unsafe {
+        //     cudarc::driver::sys::cuMemcpyDtoH_v2(
+        //         cpu_frame.as_mut_ptr() as *mut _,
+        //         frame_ptr,
+        //         std::mem::size_of_val(&cpu_frame),
+        //     )
+        //     .result()
+        //     .unwrap();
+        // }
+
+        unsafe {
+            cudarc::driver::sys::cuMemcpyDtoHAsync_v2(
+                cpu_frame.as_mut_ptr() as *mut _,
+                frame_ptr,
+                std::mem::size_of_val(&cpu_frame),
+                stream.cu_stream(),
+            )
+            .result();
+        }
+        let bytes = unsafe {
+            slice::from_raw_parts(
+                cpu_frame.as_ptr() as *const u8,
+                cpu_frame.len() * std::mem::size_of::<f32>(),
+            )
+        };
+        out_file.write_all(bytes).unwrap();
+        unsafe {
+            cudarc::driver::sys::cuMemFree_v2(frame_ptr);
+        }
     }
 }
 
