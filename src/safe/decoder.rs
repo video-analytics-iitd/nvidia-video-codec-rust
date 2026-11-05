@@ -554,10 +554,7 @@ unsafe extern "C" fn handle_picture_display(
         m.Height = (*context).chroma_height as usize;
         cuMemcpy2DAsync_v2(&m, &mut *(*context).cuda_stream.cu_stream());
     }
-    // The copies above are asynchronous and read from the mapped decoder surface.
-    // Wait for them before unmapping: once unmapped, the decoder may reuse the
-    // surface for a later picture while the copy is still in flight, which put
-    // pixels from later pictures into this frame (timing-dependent).
+    // The copies above are asynchronous: Wait for them before unmapping
     if let Err(e) = (*context).cuda_stream.synchronize() {
         eprintln!("Failed to synchronize after copying decoded frame: {:?}", e);
         unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
