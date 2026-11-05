@@ -10,7 +10,10 @@ use std::{
 };
 
 use cudarc::driver::{
-    sys::{cuMemAlloc_v2, cuMemcpy2DAsync_v2, CUdeviceptr, CUmemorytype, CUresult, CUDA_MEMCPY2D},
+    sys::{
+        cuMemAlloc_v2, cuMemFree_v2, cuMemcpy2DAsync_v2, CUdeviceptr, CUmemorytype, CUresult,
+        CUDA_MEMCPY2D,
+    },
     CudaContext, CudaSlice, CudaStream, DevicePtr,
 };
 
@@ -551,6 +554,13 @@ unsafe extern "C" fn handle_picture_display(
         m.Height = (*context).chroma_height as usize;
         cuMemcpy2DAsync_v2(&m, &mut *(*context).cuda_stream.cu_stream());
     }
+    // The copies above are asynchronous: Wait for them before unmapping
+    if let Err(e) = (*context).cuda_stream.synchronize() {
+        eprintln!("Failed to synchronize after copying decoded frame: {:?}", e);
+        unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
+        unsafe { cuMemFree_v2(frame) };
+        return 0;
+    }
     unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
 
     let cuda_slice = (*context)
@@ -644,6 +654,28 @@ impl Decoder {
         res.result().unwrap();
 
         // The callback `handle_picture_decode` should populate this queue with decoded frames
+        unsafe {
+            (*self.get_decoder_context())
+                .frame_queue
+                .lock()
+                .unwrap()
+                .len()
+        }
+    }
+
+    /// Signal end of stream to the parser. It then outputs every picture it was
+    /// still holding back for display reordering (e.g. around B-frames). Call
+    /// once after the last packet; returns the number of frames now ready.
+    pub fn flush(&mut self) -> usize {
+        let mut packet = CUVIDSOURCEDATAPACKET {
+            flags: CUvideopacketflags::CUVID_PKT_ENDOFSTREAM as u64,
+            payload_size: 0,
+            payload: ptr::null_mut(),
+            timestamp: 0,
+        };
+        let res = unsafe { (DECODE_API.parse_video_data)(self.parser.0, &mut packet) };
+        res.result().unwrap();
+
         unsafe {
             (*self.get_decoder_context())
                 .frame_queue
