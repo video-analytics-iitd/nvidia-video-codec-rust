@@ -666,6 +666,28 @@ impl Decoder {
         }
     }
 
+    /// Signal end of stream to the parser. It then outputs every picture it was
+    /// still holding back for display reordering (e.g. around B-frames). Call
+    /// once after the last packet; returns the number of frames now ready.
+    pub fn flush(&mut self) -> usize {
+        let mut packet = CUVIDSOURCEDATAPACKET {
+            flags: CUvideopacketflags::CUVID_PKT_ENDOFSTREAM as u64,
+            payload_size: 0,
+            payload: ptr::null_mut(),
+            timestamp: 0,
+        };
+        let res = unsafe { (DECODE_API.parse_video_data)(self.parser.0, &mut packet) };
+        res.result().unwrap();
+
+        unsafe {
+            (*self.get_decoder_context())
+                .frame_queue
+                .lock()
+                .unwrap()
+                .len()
+        }
+    }
+
     ///
     pub fn get_frame(&mut self) -> Option<Arc<CudaSlice<f32>>> {
         unsafe {
