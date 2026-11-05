@@ -75,7 +75,7 @@ pub struct Dim {
 
 const MAX_FRM_CNT: usize = 32;
 pub struct DecodeContext {
-    frame_queue: Mutex<VecDeque<Arc<CudaSlice<f32>>>>,
+    frame_queue: Mutex<VecDeque<Arc<CudaSlice<u8>>>>,
     // cuda_device: Arc<CudaDevice>,
     ctx: Arc<CudaContext>,
     cuda_stream: Arc<CudaStream>,
@@ -563,9 +563,11 @@ unsafe extern "C" fn handle_picture_display(
     }
     unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
 
+    // `frame_size` is in bytes, so the slice must be typed u8 to cover exactly
+    // the allocation.
     let cuda_slice = (*context)
         .cuda_stream
-        .upgrade_device_ptr(frame, frame_size as usize);
+        .upgrade_device_ptr::<u8>(frame, frame_size as usize);
 
     (*context)
         .frame_queue
@@ -685,8 +687,10 @@ impl Decoder {
         }
     }
 
-    ///
-    pub fn get_frame(&mut self) -> Option<Arc<CudaSlice<f32>>> {
+    /// Next decoded picture, as raw bytes in the decoder's output surface
+    /// format (NV12 for 8-bit 4:2:0 video): a `width x height` luma plane
+    /// followed by the chroma plane(s), rows packed without padding.
+    pub fn get_frame(&mut self) -> Option<Arc<CudaSlice<u8>>> {
         unsafe {
             (*self.get_decoder_context())
                 .frame_queue
