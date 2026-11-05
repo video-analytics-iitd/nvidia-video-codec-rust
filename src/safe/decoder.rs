@@ -10,7 +10,10 @@ use std::{
 };
 
 use cudarc::driver::{
-    sys::{cuMemAlloc_v2, cuMemcpy2DAsync_v2, CUdeviceptr, CUmemorytype, CUresult, CUDA_MEMCPY2D},
+    sys::{
+        cuMemAlloc_v2, cuMemFree_v2, cuMemcpy2DAsync_v2, CUdeviceptr, CUmemorytype, CUresult,
+        CUDA_MEMCPY2D,
+    },
     CudaContext, CudaSlice, CudaStream, DevicePtr,
 };
 
@@ -550,6 +553,16 @@ unsafe extern "C" fn handle_picture_display(
         m.dstDevice = (frame as *mut u8).wrapping_add(offset) as CUdeviceptr;
         m.Height = (*context).chroma_height as usize;
         cuMemcpy2DAsync_v2(&m, &mut *(*context).cuda_stream.cu_stream());
+    }
+    // The copies above are asynchronous and read from the mapped decoder surface.
+    // Wait for them before unmapping: once unmapped, the decoder may reuse the
+    // surface for a later picture while the copy is still in flight, which put
+    // pixels from later pictures into this frame (timing-dependent).
+    if let Err(e) = (*context).cuda_stream.synchronize() {
+        eprintln!("Failed to synchronize after copying decoded frame: {:?}", e);
+        unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
+        unsafe { cuMemFree_v2(frame) };
+        return 0;
     }
     unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
 
