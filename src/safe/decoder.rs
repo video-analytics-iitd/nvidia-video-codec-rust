@@ -1,5 +1,16 @@
-use bincode::{Decode, Encode};
-use core::panic;
+// This module is a port of the C++ NvDecoder sample and talks to the raw FFI
+// bindings, whose integer types differ from the ones used here. The casts are
+// deliberate, so the pedantic cast lints are silenced for the whole module.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_lossless,
+    clippy::unnecessary_cast,
+    clippy::ptr_as_ptr,
+    clippy::too_many_lines
+)]
 
 use std::{
     collections::VecDeque,
@@ -9,33 +20,53 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use bincode::{Decode, Encode};
 use cudarc::driver::{
     sys::{
-        cuMemAlloc_v2, cuMemFree_v2, cuMemcpy2DAsync_v2, CUdeviceptr, CUmemorytype, CUresult,
+        cuMemAlloc_v2,
+        cuMemFree_v2,
+        cuMemcpy2DAsync_v2,
+        CUdeviceptr,
+        CUmemorytype,
+        CUresult,
         CUDA_MEMCPY2D,
     },
-    CudaContext, CudaSlice, CudaStream, DevicePtr,
-};
-
-use crate::sys::{
-    cuviddec::{
-        cudaVideoChromaFormat_enum, cudaVideoCodec_enum, cudaVideoCreateFlags_enum,
-        cudaVideoDeinterlaceMode_enum, cudaVideoSurfaceFormat_enum, cuvidDecodeStatus_enum,
-        CUvideoctxlock, CUvideodecoder, CUVIDDECODECAPS, CUVIDDECODECREATEINFO,
-        CUVIDGETDECODESTATUS, CUVIDPICPARAMS, CUVIDPROCPARAMS,
-    },
-    nvcuvid::{
-        CUvideopacketflags, CUVIDEOFORMAT, CUVIDEOFORMATEX, CUVIDOPERATINGPOINTINFO,
-        CUVIDPARSERDISPINFO, CUVIDPARSERPARAMS, CUVIDSOURCEDATAPACKET,
-    },
+    CudaContext,
+    CudaSlice,
+    CudaStream,
 };
 
 use super::{result::DecodeError, DECODE_API};
+use crate::sys::{
+    cuviddec::{
+        cudaVideoChromaFormat_enum,
+        cudaVideoCodec_enum,
+        cudaVideoCreateFlags_enum,
+        cudaVideoDeinterlaceMode_enum,
+        cudaVideoSurfaceFormat_enum,
+        cuvidDecodeStatus_enum,
+        CUvideoctxlock,
+        CUvideodecoder,
+        CUVIDDECODECAPS,
+        CUVIDDECODECREATEINFO,
+        CUVIDGETDECODESTATUS,
+        CUVIDPICPARAMS,
+        CUVIDPROCPARAMS,
+    },
+    nvcuvid::{
+        CUvideopacketflags,
+        CUVIDEOFORMAT,
+        CUVIDEOFORMATEX,
+        CUVIDOPERATINGPOINTINFO,
+        CUVIDPARSERDISPINFO,
+        CUVIDPARSERPARAMS,
+        CUVIDSOURCEDATAPACKET,
+    },
+};
 
 // type Device = Arc<CudaDevice>;
 type Ctx = Arc<CudaContext>;
 type Stream = Arc<CudaStream>;
-///
 #[derive(Debug)]
 struct ParserPtr(*mut c_void);
 unsafe impl Send for ParserPtr {}
@@ -44,7 +75,7 @@ unsafe impl Send for ParserPtr {}
 struct DecCtxPtr(*mut c_void);
 unsafe impl Send for DecCtxPtr {}
 
-///
+/// Hardware video decoder built on NVDEC and the NVCUVID parser.
 #[derive(Debug)]
 pub struct Decoder {
     parser: ParserPtr,
@@ -52,7 +83,7 @@ pub struct Decoder {
     _ctx: Ctx,
     _stream: Stream,
     // Context for the callbacks
-    decoder_context: DecCtxPtr,
+    context: DecCtxPtr,
 }
 
 impl Drop for Decoder {
@@ -67,9 +98,12 @@ pub struct Rect {
     b: i32,
 }
 
+/// Width and height of a frame, in pixels.
 #[derive(Encode, Decode, PartialEq, Debug, Clone, Copy)]
 pub struct Dim {
+    /// Width in pixels.
     pub w: i32,
+    /// Height in pixels.
     pub h: i32,
 }
 
@@ -194,11 +228,13 @@ unsafe extern "C" fn handle_video_seq(
     println!("Fields of video format: {:?}", *p_video_format);
     let context = arg1 as *mut DecodeContext;
     unsafe {
-        let cu_ctx = (*context).ctx.clone(); // Replace with your actual field name
+        let cu_ctx = (*context).ctx.clone(); // Replace with your actual field
+                                             // name
         let status = cudarc::driver::sys::cuCtxPushCurrent_v2((*cu_ctx).cu_ctx());
-        if status != CUresult::CUDA_SUCCESS {
-            panic!("Failed to push CUDA context: {:?}", status);
-        }
+        assert!(
+            status == CUresult::CUDA_SUCCESS,
+            "Failed to push CUDA context: {status:?}"
+        );
     }
     let n_decode_surface = (*p_video_format).min_num_decode_surfaces as i32;
     let mut decode_caps: CUVIDDECODECAPS = unsafe { std::mem::zeroed() };
@@ -207,11 +243,12 @@ unsafe extern "C" fn handle_video_seq(
     decode_caps.nBitDepthMinus8 = (*p_video_format).bit_depth_luma_minus8 as u32;
 
     let res = unsafe { (DECODE_API.get_decode_caps)(&mut decode_caps) };
-    println!("{:?}", res);
+    println!("{res:?}");
 
-    if decode_caps.bIsSupported == 0 {
-        panic!("Codec not supported on this GPU")
-    }
+    assert!(
+        decode_caps.bIsSupported != 0,
+        "Codec not supported on this GPU"
+    );
 
     if decode_caps.nMaxWidth < (*p_video_format).coded_width
         || decode_caps.nMaxHeight < (*p_video_format).coded_height
@@ -229,12 +266,14 @@ unsafe extern "C" fn handle_video_seq(
     let height_in_mb = (*p_video_format).coded_height >> 4;
     let total_mb = width_in_mb * height_in_mb;
 
-    if total_mb > decode_caps.nMaxMBCount {
-        panic!(
-            "Decoder max macroblock count is {}. Video has {} macroblocks ({}x{}).",
-            decode_caps.nMaxMBCount, total_mb, width_in_mb, height_in_mb
-        );
-    }
+    assert!(
+        total_mb <= decode_caps.nMaxMBCount,
+        "Decoder max macroblock count is {}. Video has {} macroblocks ({}x{}).",
+        decode_caps.nMaxMBCount,
+        total_mb,
+        width_in_mb,
+        height_in_mb
+    );
     (*context).codec = (*p_video_format).codec;
     (*context).chroma_format = (*p_video_format).chroma_format;
     (*context).n_bit_depth_minus8 = (*p_video_format).bit_depth_luma_minus8;
@@ -326,9 +365,10 @@ unsafe extern "C" fn handle_video_seq(
     let res = unsafe {
         (DECODE_API.create_decoder)(&mut (*context).decoder, &mut video_decode_create_info)
     };
-    if res != CUresult::CUDA_SUCCESS {
-        panic!("Something went wrong during decoder init");
-    }
+    assert!(
+        res == CUresult::CUDA_SUCCESS,
+        "Something went wrong during decoder init"
+    );
 
     n_decode_surface
 }
@@ -360,7 +400,8 @@ fn create_viddec_info(
                 cudaVideoDeinterlaceMode_enum::cudaVideoDeinterlaceMode_Adaptive;
         }
         (*ptr).ulNumOutputSurfaces = 2;
-        // With PreferCUVID, JPEG is still decoded by CUDA while video is decoded by NVDEC hardware
+        // With PreferCUVID, JPEG is still decoded by CUDA while video is
+        // decoded by NVDEC hardware
         (*ptr).ulCreationFlags = cudaVideoCreateFlags_enum::cudaVideoCreate_PreferCUVID as u64;
         if context_box.num_dec_surfaces == 0 || context_box.num_dec_surfaces > n_decode_surface {
             context_box.num_dec_surfaces = n_decode_surface;
@@ -378,7 +419,8 @@ fn create_viddec_info(
                 || context_box.max_height > (*p_video_format).coded_height as u32)
             {
                 // let vid_format_ex =
-                //     unsafe { &*((*p_video_format) as *const CUVIDEOFORMAT as *const CUVIDEOFORMATEX) };
+                //     unsafe { &*((*p_video_format) as *const CUVIDEOFORMAT as
+                // *const CUVIDEOFORMATEX) };
                 let vid_format_ex = &*(p_video_format as *const CUVIDEOFORMATEX);
                 context_box.max_width = vid_format_ex.__bindgen_anon_1.av1.max_width as u32;
                 context_box.max_height = vid_format_ex.__bindgen_anon_1.av1.max_height as u32;
@@ -442,9 +484,10 @@ unsafe extern "C" fn handle_picture_decode(
     // println!("Inside the callback: [Handle Picture Decode]");
     let context_box = arg1 as *mut DecodeContext;
 
-    if (*context_box).decoder == ptr::null_mut() {
-        panic!("Decoder not initialized.")
-    }
+    assert!(
+        !(*context_box).decoder.is_null(),
+        "Decoder not initialized."
+    );
 
     (*context_box).pic_number_in_decode_order[(*pic_params).CurrPicIdx as usize] =
         (*context_box).decode_pic_cnt;
@@ -466,7 +509,7 @@ unsafe extern "C" fn handle_picture_display(
         second_field: (*p_disp_info).repeat_first_field + 1,
         top_field_first: (*p_disp_info).top_field_first,
         unpaired_field: ((*p_disp_info).repeat_first_field < 0) as i32,
-        output_stream: (*context).cuda_stream.cu_stream().clone(),
+        output_stream: (*context).cuda_stream.cu_stream(),
         ..Default::default()
     };
 
@@ -498,7 +541,7 @@ unsafe extern "C" fn handle_picture_display(
             println!(
                 "Decode error occured for the picture {}",
                 (*context).pic_number_in_decode_order[(*p_disp_info).picture_index as usize]
-            )
+            );
         }
     };
 
@@ -539,7 +582,8 @@ unsafe extern "C" fn handle_picture_display(
     let ptr = (dp_src_frame as *mut u8).wrapping_add(offset);
     m.srcDevice = ptr as CUdeviceptr;
 
-    // m.dstHost = latest_frame as usize + m.dstPitch as usize + (*context_box).luma_height as usize;
+    // m.dstHost = latest_frame as usize + m.dstPitch as usize +
+    // (*context_box).luma_height as usize;
     let offset = m.dstPitch * (*context).luma_height as usize;
     m.dstDevice = (frame as *mut u8).wrapping_add(offset) as CUdeviceptr;
     m.Height = (*context).chroma_height as usize;
@@ -556,7 +600,7 @@ unsafe extern "C" fn handle_picture_display(
     }
     // The copies above are asynchronous: Wait for them before unmapping
     if let Err(e) = (*context).cuda_stream.synchronize() {
-        eprintln!("Failed to synchronize after copying decoded frame: {:?}", e);
+        eprintln!("Failed to synchronize after copying decoded frame: {e:?}");
         unsafe { (DECODE_API.unmap_video_frame)((*context).decoder, dp_src_frame) };
         unsafe { cuMemFree_v2(frame) };
         return 0;
@@ -572,7 +616,7 @@ unsafe extern "C" fn handle_picture_display(
     (*context)
         .frame_queue
         .lock()
-        .unwrap()
+        .expect("frame queue lock poisoned")
         .push_back(Arc::new(cuda_slice));
 
     1
@@ -583,22 +627,30 @@ unsafe extern "C" fn handle_operating_point(
     p_op_info: *mut CUVIDOPERATINGPOINTINFO,
 ) -> ::core::ffi::c_int {
     let mut context_box: Box<DecodeContext> = Box::from_raw(arg1 as *mut DecodeContext);
-    if (*p_op_info).codec == cudaVideoCodec_enum::cudaVideoCodec_AV1 {
-        if (*p_op_info).__bindgen_anon_1.av1.operating_points_cnt > 1 {
-            if context_box.operating_pts
-                >= ((*p_op_info).__bindgen_anon_1.av1.operating_points_cnt as i32)
-            {
-                context_box.operating_pts = 0;
-            }
-            return context_box.operating_pts | ((context_box.display_all_layers as i32) << 10);
+    if (*p_op_info).codec == cudaVideoCodec_enum::cudaVideoCodec_AV1
+        && (*p_op_info).__bindgen_anon_1.av1.operating_points_cnt > 1
+    {
+        if context_box.operating_pts
+            >= ((*p_op_info).__bindgen_anon_1.av1.operating_points_cnt as i32)
+        {
+            context_box.operating_pts = 0;
         }
+        return context_box.operating_pts | (i32::from(context_box.display_all_layers) << 10);
     }
 
     -1
 }
 
 impl Decoder {
+    /// Create a decoder for `codec_type` on the given CUDA context and stream.
     ///
+    /// `resize_info` is the `(width, height)` to scale decoded frames to;
+    /// pass `(0, 0)` to keep the coded size.
+    ///
+    /// # Errors
+    ///
+    /// Currently always succeeds; the `Result` is reserved for reporting
+    /// parser creation failures.
     pub fn initialize_with_cuda(
         cuda_ctx: Arc<CudaContext>,
         cuda_stream: Arc<CudaStream>,
@@ -634,17 +686,24 @@ impl Decoder {
 
         Ok(Decoder {
             parser: ParserPtr(parser),
-            decoder_context: DecCtxPtr(context),
+            context: DecCtxPtr(context),
             _ctx: cuda_ctx,
             _stream: cuda_stream,
         })
     }
 
     fn get_decoder_context(&self) -> *mut DecodeContext {
-        (self.decoder_context.0) as *mut DecodeContext
+        (self.context.0) as *mut DecodeContext
     }
 
+    /// Feed one packet of compressed bitstream to the parser and return the
+    /// number of decoded frames ready to be taken with
+    /// [`Decoder::get_frame`].
     ///
+    /// # Panics
+    ///
+    /// Panics if the parser rejects the packet or the frame queue lock is
+    /// poisoned.
     pub fn decode(&mut self, input: *mut c_uchar, size: u64) -> usize {
         let mut packet = CUVIDSOURCEDATAPACKET {
             flags: CUvideopacketflags::CUVID_PKT_TIMESTAMP as u64,
@@ -653,14 +712,15 @@ impl Decoder {
             timestamp: 0,
         };
         let res = unsafe { (DECODE_API.parse_video_data)(self.parser.0, &mut packet) };
-        res.result().unwrap();
+        res.result().expect("failed to parse video data");
 
-        // The callback `handle_picture_decode` should populate this queue with decoded frames
+        // The callback `handle_picture_decode` should populate this queue with
+        // decoded frames
         unsafe {
             (*self.get_decoder_context())
                 .frame_queue
                 .lock()
-                .unwrap()
+                .expect("frame queue lock poisoned")
                 .len()
         }
     }
@@ -668,6 +728,11 @@ impl Decoder {
     /// Signal end of stream to the parser. It then outputs every picture it was
     /// still holding back for display reordering (e.g. around B-frames). Call
     /// once after the last packet; returns the number of frames now ready.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the parser rejects the packet or the frame queue lock is
+    /// poisoned.
     pub fn flush(&mut self) -> usize {
         let mut packet = CUVIDSOURCEDATAPACKET {
             flags: CUvideopacketflags::CUVID_PKT_ENDOFSTREAM as u64,
@@ -676,13 +741,13 @@ impl Decoder {
             timestamp: 0,
         };
         let res = unsafe { (DECODE_API.parse_video_data)(self.parser.0, &mut packet) };
-        res.result().unwrap();
+        res.result().expect("failed to parse video data");
 
         unsafe {
             (*self.get_decoder_context())
                 .frame_queue
                 .lock()
-                .unwrap()
+                .expect("frame queue lock poisoned")
                 .len()
         }
     }
@@ -690,12 +755,16 @@ impl Decoder {
     /// Next decoded picture, as raw bytes in the decoder's output surface
     /// format (NV12 for 8-bit 4:2:0 video): a `width x height` luma plane
     /// followed by the chroma plane(s), rows packed without padding.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the frame queue lock is poisoned.
     pub fn get_frame(&mut self) -> Option<Arc<CudaSlice<u8>>> {
         unsafe {
             (*self.get_decoder_context())
                 .frame_queue
                 .lock()
-                .unwrap()
+                .expect("frame queue lock poisoned")
                 .pop_front()
         }
     }

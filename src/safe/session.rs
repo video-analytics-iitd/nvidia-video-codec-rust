@@ -10,12 +10,22 @@ use std::fmt::Debug;
 use super::{api::ENCODE_API, encoder::Encoder, result::EncodeError};
 use crate::{
     sys::nvEncodeAPI::{
-        GUID, NV_ENC_BUFFER_FORMAT, NV_ENC_CODEC_AV1_GUID, NV_ENC_CODEC_H264_GUID,
-        NV_ENC_CODEC_HEVC_GUID, NV_ENC_CODEC_PIC_PARAMS, NV_ENC_PIC_PARAMS, NV_ENC_PIC_PARAMS_AV1,
-        NV_ENC_PIC_PARAMS_H264, NV_ENC_PIC_PARAMS_HEVC, NV_ENC_PIC_PARAMS_VER, NV_ENC_PIC_STRUCT,
+        GUID,
+        NV_ENC_BUFFER_FORMAT,
+        NV_ENC_CODEC_AV1_GUID,
+        NV_ENC_CODEC_H264_GUID,
+        NV_ENC_CODEC_HEVC_GUID,
+        NV_ENC_CODEC_PIC_PARAMS,
+        NV_ENC_PIC_PARAMS,
+        NV_ENC_PIC_PARAMS_AV1,
+        NV_ENC_PIC_PARAMS_H264,
+        NV_ENC_PIC_PARAMS_HEVC,
+        NV_ENC_PIC_PARAMS_VER,
+        NV_ENC_PIC_STRUCT,
         NV_ENC_PIC_TYPE,
     },
-    EncoderInput, EncoderOutput,
+    EncoderInput,
+    EncoderOutput,
 };
 
 /// An encoding session to create input/output buffers and encode frames.
@@ -220,7 +230,8 @@ impl Drop for EncSession {
 }
 
 /// Optional parameters for [`Session::encode_picture`].
-#[allow(missing_debug_implementations)] // CodecPictureParams doesn't implement Debug
+#[allow(missing_debug_implementations)] // CodecPictureParams doesn't implement
+                                        // Debug
 pub struct EncodePictureParams {
     /// Opaque data used for identifying the corresponding encoded frame
     pub input_timestamp: u64,
@@ -242,7 +253,8 @@ impl Default for EncodePictureParams {
 }
 
 /// Codec specific picture parameters
-#[allow(missing_debug_implementations)] // NV_ENC_PIC_PARAMS_H264 contains a union, thus doesn't derive Debug
+#[allow(missing_debug_implementations)] // NV_ENC_PIC_PARAMS_H264 contains a
+                                        // union, thus doesn't derive Debug
 pub enum CodecPictureParams {
     /// Parameters for H.264
     H264(NV_ENC_PIC_PARAMS_H264),

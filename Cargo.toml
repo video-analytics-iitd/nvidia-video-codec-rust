@@ -30,4 +30,4 @@ libc = "0.2"
 
 [features]
 default = []
-ci-check = ["cudarc/cuda-12020", "cudarc/dynamic-loading", "cudarc/cuda-13000"]
+ci-check = ["cudarc/cuda-13000", "cudarc/dynamic-loading"]
