@@ -56,18 +56,20 @@ const LIBRARY_CANDIDATES: [&str; 11] = [
 ];
 
 fn main() {
-    // if cfg!(feature = "ci-check") {
-    //     return;
-    // }
     rerun_if_changed();
-
-    // Link to libraries.
-    println!("cargo:rustc-link-lib={}", NVENC_LIB.0);
-    println!("cargo:rustc-link-lib={}", NVDEC_LIB.0);
 
     // Add the first found candidate location to link search.
     match library_candidates().next() {
         Some(path) => println!("cargo:rustc-link-search={}", path.display()),
+        // CI runners have no NVIDIA libraries. Linting and building docs do not
+        // link, so skip linking instead of failing the build.
+        None if std::env::var_os("CARGO_FEATURE_CI_CHECK").is_some() => {
+            println!(
+                "cargo:warning=NVIDIA Video Codec SDK libraries not found; not linking them \
+                 (ci-check)"
+            );
+            return;
+        }
         None => panic!(
             "Could not find NVIDIA Video Codec SDK libraries.\nPlace the libraries where you have \
              your CUDA installation, or set `NVIDIA_VIDEO_CODEC_SDK_PATH` to the directory of \
@@ -76,6 +78,10 @@ fn main() {
             NVENC_LIB.1, NVDEC_LIB.1
         ),
     }
+
+    // Link to libraries.
+    println!("cargo:rustc-link-lib={}", NVENC_LIB.0);
+    println!("cargo:rustc-link-lib={}", NVDEC_LIB.0);
 }
 
 // Rerun the build script if any of the listed environment variables changes.

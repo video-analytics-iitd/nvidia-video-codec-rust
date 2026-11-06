@@ -8,12 +8,20 @@
 use std::ffi::c_void;
 
 use crate::sys::nvEncodeAPI::{
-    GUID, NV_ENC_BUFFER_FORMAT, NV_ENC_CONFIG, NV_ENC_INITIALIZE_PARAMS,
-    NV_ENC_INITIALIZE_PARAMS_VER, NV_ENC_INPUT_RESOURCE_TYPE, NV_ENC_PIC_FLAGS, NV_ENC_PIC_PARAMS,
-    NV_ENC_PIC_PARAMS_VER, NV_ENC_REGISTER_RESOURCE, NV_ENC_REGISTER_RESOURCE_VER,
+    GUID,
+    NV_ENC_BUFFER_FORMAT,
+    NV_ENC_CONFIG,
+    NV_ENC_INITIALIZE_PARAMS,
+    NV_ENC_INITIALIZE_PARAMS_VER,
+    NV_ENC_INPUT_RESOURCE_TYPE,
+    NV_ENC_PIC_FLAGS,
+    NV_ENC_PIC_PARAMS,
+    NV_ENC_PIC_PARAMS_VER,
+    NV_ENC_REGISTER_RESOURCE,
+    NV_ENC_REGISTER_RESOURCE_VER,
 };
 
-#[deprecated(note = "use the safe wrapper `EncoderInitParams`")]
+#[deprecated(since = "0.4.0", note = "use the safe wrapper `EncoderInitParams`")]
 impl NV_ENC_INITIALIZE_PARAMS {
     /// Builder for [`NV_ENC_INITIALIZE_PARAMS`].
     #[must_use]

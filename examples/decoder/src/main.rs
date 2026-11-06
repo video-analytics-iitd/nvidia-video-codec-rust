@@ -14,7 +14,6 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::ptr;
-use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -144,7 +143,7 @@ impl FrameIter {
 }
 
 impl Iterator for FrameIter {
-    type Item = Arc<CudaSlice<f32>>;
+    type Item = Arc<CudaSlice<u8>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -180,7 +179,7 @@ fn main() {
     // let ctx = CudaContext::new(0).unwrap();
     // let stream = ctx.new_stream().unwrap();
     while let Some(frame) = frame_iter.next() {
-        let mut cpu_frame: Vec<f32> = Vec::with_capacity(frame.len());
+        let mut cpu_frame: Vec<u8> = Vec::with_capacity(frame.len());
         #[allow(clippy::uninit_vec)]
         unsafe {
             cpu_frame.set_len(frame.len())
@@ -189,7 +188,7 @@ fn main() {
         // let frame = Arc::<CudaSlice<f32>>::try_unwrap(frame).unwrap();
         // stream.memcpy_dtoh(&frame, &mut cpu_frame).unwrap();
         // stream.memcpy_dtoh(frame.as_ref(), &mut cpu_frame).unwrap();
-        let frame = Arc::<CudaSlice<f32>>::try_unwrap(frame).unwrap();
+        let frame = Arc::<CudaSlice<u8>>::try_unwrap(frame).unwrap();
         let frame_ptr = frame.leak();
         // unsafe {
         //     cudarc::driver::sys::cuMemcpyDtoH_v2(
@@ -210,13 +209,8 @@ fn main() {
             )
             .result();
         }
-        let bytes = unsafe {
-            slice::from_raw_parts(
-                cpu_frame.as_ptr() as *const u8,
-                cpu_frame.len() * std::mem::size_of::<f32>(),
-            )
-        };
-        out_file.write_all(bytes).unwrap();
+        stream.synchronize().unwrap();
+        out_file.write_all(&cpu_frame).unwrap();
         unsafe {
             cudarc::driver::sys::cuMemFree_v2(frame_ptr);
         }

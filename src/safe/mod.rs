@@ -13,10 +13,15 @@ mod session;
 
 pub use api::{DecodeAPI, EncodeAPI, DECODE_API, ENCODE_API};
 pub use buffer::{
-    Bitstream, BitstreamLock, Buffer, BufferLock, EncoderInput, EncoderOutput, RegisteredResource,
+    Bitstream,
+    BitstreamLock,
+    Buffer,
+    BufferLock,
+    EncoderInput,
+    EncoderOutput,
+    RegisteredResource,
 };
-pub use decoder::Decoder;
-pub use decoder::Dim;
+pub use decoder::{Decoder, Dim};
 pub use encoder::{Encoder, EncoderInitParams};
 pub use result::{EncodeError, ErrorKind};
 pub use session::{CodecPictureParams, EncSession, EncodePictureParams};

@@ -6,25 +6,61 @@ use cudarc::driver::sys::{CUcontext, CUresult};
 
 use crate::sys::{
     cuviddec::{
-        cuvidCreateDecoder, cuvidCtxLockCreate, cuvidDecodePicture, cuvidGetDecodeStatus,
-        cuvidGetDecoderCaps, cuvidMapVideoFrame64, cuvidUnmapVideoFrame64, CUvideoctxlock,
-        CUvideodecoder, CUVIDDECODECAPS, CUVIDDECODECREATEINFO, CUVIDGETDECODESTATUS,
-        CUVIDPICPARAMS, CUVIDPROCPARAMS,
+        cuvidCreateDecoder,
+        cuvidCtxLockCreate,
+        cuvidDecodePicture,
+        cuvidGetDecodeStatus,
+        cuvidGetDecoderCaps,
+        cuvidMapVideoFrame64,
+        cuvidUnmapVideoFrame64,
+        CUvideoctxlock,
+        CUvideodecoder,
+        CUVIDDECODECAPS,
+        CUVIDDECODECREATEINFO,
+        CUVIDGETDECODESTATUS,
+        CUVIDPICPARAMS,
+        CUVIDPROCPARAMS,
     },
     nvEncodeAPI::{
-        NvEncodeAPICreateInstance, NvEncodeAPIGetMaxSupportedVersion, GUID, NVENCAPI_MAJOR_VERSION,
-        NVENCAPI_MINOR_VERSION, NVENCSTATUS, NV_ENCODE_API_FUNCTION_LIST,
-        NV_ENCODE_API_FUNCTION_LIST_VER, NV_ENC_BUFFER_FORMAT, NV_ENC_CAPS_PARAM,
-        NV_ENC_CREATE_BITSTREAM_BUFFER, NV_ENC_CREATE_INPUT_BUFFER, NV_ENC_CREATE_MV_BUFFER,
-        NV_ENC_CUSTREAM_PTR, NV_ENC_EVENT_PARAMS, NV_ENC_INITIALIZE_PARAMS, NV_ENC_INPUT_PTR,
-        NV_ENC_LOCK_BITSTREAM, NV_ENC_LOCK_INPUT_BUFFER, NV_ENC_LOOKAHEAD_PIC_PARAMS,
-        NV_ENC_MAP_INPUT_RESOURCE, NV_ENC_MEONLY_PARAMS, NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS,
-        NV_ENC_OUTPUT_PTR, NV_ENC_PIC_PARAMS, NV_ENC_PRESET_CONFIG, NV_ENC_RECONFIGURE_PARAMS,
-        NV_ENC_REGISTERED_PTR, NV_ENC_REGISTER_RESOURCE, NV_ENC_RESTORE_ENCODER_STATE_PARAMS,
-        NV_ENC_SEQUENCE_PARAM_PAYLOAD, NV_ENC_STAT, NV_ENC_TUNING_INFO,
+        NvEncodeAPICreateInstance,
+        NvEncodeAPIGetMaxSupportedVersion,
+        GUID,
+        NVENCAPI_MAJOR_VERSION,
+        NVENCAPI_MINOR_VERSION,
+        NVENCSTATUS,
+        NV_ENCODE_API_FUNCTION_LIST,
+        NV_ENCODE_API_FUNCTION_LIST_VER,
+        NV_ENC_BUFFER_FORMAT,
+        NV_ENC_CAPS_PARAM,
+        NV_ENC_CREATE_BITSTREAM_BUFFER,
+        NV_ENC_CREATE_INPUT_BUFFER,
+        NV_ENC_CREATE_MV_BUFFER,
+        NV_ENC_CUSTREAM_PTR,
+        NV_ENC_EVENT_PARAMS,
+        NV_ENC_INITIALIZE_PARAMS,
+        NV_ENC_INPUT_PTR,
+        NV_ENC_LOCK_BITSTREAM,
+        NV_ENC_LOCK_INPUT_BUFFER,
+        NV_ENC_LOOKAHEAD_PIC_PARAMS,
+        NV_ENC_MAP_INPUT_RESOURCE,
+        NV_ENC_MEONLY_PARAMS,
+        NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS,
+        NV_ENC_OUTPUT_PTR,
+        NV_ENC_PIC_PARAMS,
+        NV_ENC_PRESET_CONFIG,
+        NV_ENC_RECONFIGURE_PARAMS,
+        NV_ENC_REGISTERED_PTR,
+        NV_ENC_REGISTER_RESOURCE,
+        NV_ENC_RESTORE_ENCODER_STATE_PARAMS,
+        NV_ENC_SEQUENCE_PARAM_PAYLOAD,
+        NV_ENC_STAT,
+        NV_ENC_TUNING_INFO,
     },
     nvcuvid::{
-        cuvidCreateVideoParser, cuvidParseVideoData, CUvideoparser, CUVIDPARSERPARAMS,
+        cuvidCreateVideoParser,
+        cuvidParseVideoData,
+        CUvideoparser,
+        CUVIDPARSERPARAMS,
         CUVIDSOURCEDATAPACKET,
     },
 };
@@ -36,10 +72,10 @@ lazy_static! {
      /// [`Encoder`](crate::Encoder) exposes much of the functionality and provides a nicer API.
      pub static ref ENCODE_API: EncodeAPI =
          EncodeAPI::new();
-    // /// A lazy static for the Encoder API.
-    // ///
-    // /// You should not interact with this directly.
-    // /// [`Encoder`](crate::Encoder) exposes much of the functionality and provides a nicer API.
+    /// A lazy static for the Decoder API.
+    ///
+    /// You should not interact with this directly.
+    /// [`Decoder`](crate::Decoder) exposes much of the functionality and provides a nicer API.
     pub static ref DECODE_API: DecodeAPI =
         DecodeAPI::new();
 
@@ -249,7 +285,8 @@ impl EncodeAPI {
         const MSG: &str = "The API instance should populate the whole function list.";
 
         // Check that the driver max supported version matches the version
-        // from the header files. If they do not match, the bindings should be updated.
+        // from the header files. If they do not match, the bindings should be
+        // updated.
         let mut version = 0;
         unsafe { NvEncodeAPIGetMaxSupportedVersion(&mut version) }
             .result_without_string()
@@ -340,11 +377,9 @@ pub struct DecodeAPI {
 
 impl DecodeAPI {
     fn new() -> Self {
-        const MSG: &str = "The API instance should populate the whole function list.";
-
         // Check that the driver max supported version matches the version
-        // from the header files. If they do not match, the bindings should be updated.
-        // let mut function_list = NV_ENCODE_API_FUNCTION_LIST {
+        // from the header files. If they do not match, the bindings should be
+        // updated. let mut function_list = NV_ENCODE_API_FUNCTION_LIST {
         //     version: NV_ENCODE_API_FUNCTION_LIST_VER,
         //     ..Default::default()
         // };
@@ -353,9 +388,11 @@ impl DecodeAPI {
         //     .result_without_string()
         //     .expect("The pointer to the function list should be valid.");
 
-        // pub fn cuvidCtxLockCreate(pLock: *mut CUvideoctxlock, ctx: CUcontext) -> CUresult;
+        // pub fn cuvidCtxLockCreate(pLock: *mut CUvideoctxlock, ctx: CUcontext)
+        // -> CUresult;
         Self {
-            // open_encode_session: function_list.nvEncOpenEncodeSession.expect(MSG),
+            // open_encode_session:
+            // function_list.nvEncOpenEncodeSession.expect(MSG),
             create_video_parser: cuvidCreateVideoParser,
             parse_video_data: cuvidParseVideoData,
             get_decode_caps: cuvidGetDecoderCaps,
