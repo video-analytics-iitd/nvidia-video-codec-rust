@@ -23,6 +23,8 @@ use std::{
 use bincode::{Decode, Encode};
 use cudarc::driver::{
     sys::{
+        cuCtxPopCurrent_v2,
+        cuCtxPushCurrent_v2,
         cuMemAlloc_v2,
         cuMemFree_v2,
         cuMemcpy2DAsync_v2,
@@ -80,14 +82,51 @@ unsafe impl Send for DecCtxPtr {}
 pub struct Decoder {
     parser: ParserPtr,
     // Used to make sure that CudaDevice stays alive while the Decoder does
-    _ctx: Ctx,
+    ctx: Ctx,
     _stream: Stream,
     // Context for the callbacks
     context: DecCtxPtr,
 }
 
 impl Drop for Decoder {
-    fn drop(&mut self) {}
+    /// Destroys the parser first (it calls back into the context), then the
+    /// hardware decoder and the context with any frames not taken.
+    fn drop(&mut self) {
+        unsafe {
+            let pushed = cuCtxPushCurrent_v2(self.ctx.cu_ctx()) == CUresult::CUDA_SUCCESS;
+            if !self.parser.0.is_null() {
+                let _ = (DECODE_API.destroy_video_parser)(self.parser.0);
+            }
+            let context = Box::from_raw(self.context.0 as *mut DecodeContext);
+            if !context.decoder.is_null() {
+                let _ = (DECODE_API.destroy_decoder)(context.decoder);
+            }
+            if !context.ctx_lock.is_null() {
+                let _ = (DECODE_API.ctx_lock_destroy)(context.ctx_lock);
+            }
+            drop(context);
+            if pushed {
+                let mut popped = ptr::null_mut();
+                let _ = cuCtxPopCurrent_v2(&mut popped);
+            }
+        }
+    }
+}
+
+/// Whether two sequence headers need the same decoder: same codec, coded
+/// size, chroma format, bit depth and display area.
+fn same_decoder_format(a: &CUVIDEOFORMAT, b: &CUVIDEOFORMAT) -> bool {
+    a.codec == b.codec
+        && a.coded_width == b.coded_width
+        && a.coded_height == b.coded_height
+        && a.chroma_format == b.chroma_format
+        && a.bit_depth_luma_minus8 == b.bit_depth_luma_minus8
+        && a.bit_depth_chroma_minus8 == b.bit_depth_chroma_minus8
+        && a.progressive_sequence == b.progressive_sequence
+        && a.display_area.left == b.display_area.left
+        && a.display_area.top == b.display_area.top
+        && a.display_area.right == b.display_area.right
+        && a.display_area.bottom == b.display_area.bottom
 }
 
 #[derive(Encode, Decode, PartialEq, Debug, Clone)]
@@ -227,16 +266,27 @@ unsafe extern "C" fn handle_video_seq(
     println!("Inside the callback: [Handle Video Sequence]");
     println!("Fields of video format: {:?}", *p_video_format);
     let context = arg1 as *mut DecodeContext;
-    unsafe {
-        let cu_ctx = (*context).ctx.clone(); // Replace with your actual field
-                                             // name
-        let status = cudarc::driver::sys::cuCtxPushCurrent_v2((*cu_ctx).cu_ctx());
-        assert!(
-            status == CUresult::CUDA_SUCCESS,
-            "Failed to push CUDA context: {status:?}"
-        );
+    // Make the decoder's context current on this thread (the display callback
+    // allocates in it). Setting rather than pushing it doesn't grow the
+    // context stack each time this runs.
+    if let Err(e) = (*context).ctx.bind_to_thread() {
+        panic!("Failed to make the CUDA context current: {e:?}");
     }
     let n_decode_surface = (*p_video_format).min_num_decode_surfaces as i32;
+
+    // The parser calls this for every sequence header it starts on. After a
+    // flush (end of stream) that is the next keyframe, so a decoder that is
+    // flushed and fed again gets called here repeatedly. Keep the hardware
+    // decoder while the format is unchanged; otherwise replace it (creating
+    // one without destroying the old one would leak it).
+    if !(*context).decoder.is_null() {
+        if same_decoder_format(&(*context).video_format, &*p_video_format) {
+            return n_decode_surface.max((*context).num_dec_surfaces);
+        }
+        let _ = (DECODE_API.destroy_decoder)((*context).decoder);
+        (*context).decoder = ptr::null_mut();
+        (*context).num_dec_surfaces = 0;
+    }
     let mut decode_caps: CUVIDDECODECAPS = unsafe { std::mem::zeroed() };
     decode_caps.eCodecType = (*p_video_format).codec;
     decode_caps.eChromaFormat = (*p_video_format).chroma_format;
@@ -687,7 +737,7 @@ impl Decoder {
         Ok(Decoder {
             parser: ParserPtr(parser),
             context: DecCtxPtr(context),
-            _ctx: cuda_ctx,
+            ctx: cuda_ctx,
             _stream: cuda_stream,
         })
     }
