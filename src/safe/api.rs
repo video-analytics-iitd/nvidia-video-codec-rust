@@ -8,7 +8,9 @@ use crate::sys::{
     cuviddec::{
         cuvidCreateDecoder,
         cuvidCtxLockCreate,
+        cuvidCtxLockDestroy,
         cuvidDecodePicture,
+        cuvidDestroyDecoder,
         cuvidGetDecodeStatus,
         cuvidGetDecoderCaps,
         cuvidMapVideoFrame64,
@@ -58,6 +60,7 @@ use crate::sys::{
     },
     nvcuvid::{
         cuvidCreateVideoParser,
+        cuvidDestroyVideoParser,
         cuvidParseVideoData,
         CUvideoparser,
         CUVIDPARSERPARAMS,
@@ -98,6 +101,9 @@ type MapVideoFrame = unsafe extern "C" fn(
 type GetDecodeStatus =
     unsafe extern "C" fn(CUvideodecoder, ::core::ffi::c_int, *mut CUVIDGETDECODESTATUS) -> CUresult;
 type UnmapVideoFrame = unsafe extern "C" fn(CUvideodecoder, ::core::ffi::c_ulonglong) -> CUresult;
+type DestroyDecoder = unsafe extern "C" fn(CUvideodecoder) -> CUresult;
+type DestroyParser = unsafe extern "C" fn(CUvideoparser) -> CUresult;
+type CtxLockDestroy = unsafe extern "C" fn(CUvideoctxlock) -> CUresult;
 
 // Function type aliases to shorten later definitions.
 type OpenEncodeSession = unsafe extern "C" fn(*mut c_void, u32, *mut *mut c_void) -> NVENCSTATUS;
@@ -373,6 +379,12 @@ pub struct DecodeAPI {
     pub get_decode_status: GetDecodeStatus,
     #[doc(alias = "NvCuvidUnmapVideoFrame")]
     pub unmap_video_frame: UnmapVideoFrame,
+    #[doc(alias = "NvCuvidDestroyDecoder")]
+    pub destroy_decoder: DestroyDecoder,
+    #[doc(alias = "NvCuvidDestroyVideoParser")]
+    pub destroy_video_parser: DestroyParser,
+    #[doc(alias = "NvCuvidCtxLockDestroy")]
+    pub ctx_lock_destroy: CtxLockDestroy,
 }
 
 impl DecodeAPI {
@@ -402,6 +414,9 @@ impl DecodeAPI {
             map_video_frame: cuvidMapVideoFrame64,
             get_decode_status: cuvidGetDecodeStatus,
             unmap_video_frame: cuvidUnmapVideoFrame64,
+            destroy_decoder: cuvidDestroyDecoder,
+            destroy_video_parser: cuvidDestroyVideoParser,
+            ctx_lock_destroy: cuvidCtxLockDestroy,
         }
     }
 }
